@@ -17,10 +17,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 	"strings"
+	"time"
 )
 
+
+// registry.test.com/c2cloud/busybox
+// busybox
 const  (
 	REPO = "library"
 	DefaultTAG = "latest"
@@ -38,18 +41,27 @@ type WriteBarFunc func(downloadName string, length, downLen int64)
 type TarAddfileFunc func(size int64, name string, b interface{}, totalWrite ...int64) (int64, error)
 
 type Pull struct {
-	// like registry-1.docker.io
+	// 镜像地址
 	Registry string
-	//like latest
+	// 镜像标签
 	Tag string
-	// Registry namespcase
+	// 镜像名称 类型 admin/busybox
 	Repository string
 	// Must be implemented in order to verify `RoundTrip()`
 	Client *http.Client
-	//
+	// 按照/分割地址后的结果
 	ImgParts []string
 
 	ImgNameWithoutTag string
+
+	DockerToken string
+}
+
+// docker token 对象
+type Token struct {
+	Token     string    `json:"token"`
+	ExpiresIn int       `json:"expires_in"`
+	IssuedAt  time.Time `json:"issued_at"`
 }
 
 // for manifest.json file
@@ -132,6 +144,7 @@ func (p *Pull) Manifests() (*schema2.Manifest, error) {
 	req, _ := http.NewRequest("GET",
 		fmt.Sprintf("https://%s/v2/%s/manifests/%s", p.Registry, p.Repository, p.Tag), nil)
 	req.Header.Set("Accept", schema2.MediaTypeManifest)
+	req.Header.Set("Authorization", p.DockerToken)
 	resp, err := p.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("while request manifests|%s", err)
@@ -154,12 +167,41 @@ func (p *Pull) Manifests() (*schema2.Manifest, error) {
 	return &data, nil
 }
 
+func (p *Pull) GetToken(harborToken string) (string, error) {
+	req, _ := http.NewRequest("GET",
+		fmt.Sprintf("https://%s/service/token?account=admin&service=harbor-registry&scope=repository:%s:pull", p.Registry, p.Repository), nil)
+	req.Header.Set("Authorization", harborToken)
+	resp, err := p.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("while request manifests|%s", err)
+	}
+	defer resp.Body.Close()
+
+	respBody,_ := ioutil.ReadAll(resp.Body)
+	if strings.Contains(string(respBody), `"errors"`) {
+		return "", errors.New(string(respBody))
+	}
+
+	var data Token
+	if err := json.Unmarshal(respBody, &data); err != nil {
+		return "", fmt.Errorf("unmarshal err|%s", err)
+	}
+
+	if data.Token == "" {
+		return "", fmt.Errorf(
+			"get harbor token error")
+	}
+
+	return data.Token, nil
+}
+
 
 func (p *Pull) Blobs(Digest digest.Digest, Range int64) (int64, io.ReadCloser, error) {
 	req, _ := http.NewRequest("GET",
 		fmt.Sprintf("https://%s/v2/%s/blobs/%s", p.Registry, p.Repository, Digest.String()), nil)
 	req.Header.Set("Accept", schema2.MediaTypeManifest)
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-", Range))
+	req.Header.Set("Authorization", p.DockerToken)
 	resp, err := p.Do(req)
 	if err != nil {
 		return 0, nil, fmt.Errorf("while request blobs|%s", err)
@@ -173,7 +215,7 @@ func (p *Pull) Blobs(Digest digest.Digest, Range int64) (int64, io.ReadCloser, e
 }
 
 
-func Save(names []string, fileName string) (error) {
+func Save(names []string, fileName string, harborToken string) (error) {
 	fw, err := os.Create(fileName)
 	if err != nil {
 		return err
@@ -194,11 +236,16 @@ func Save(names []string, fileName string) (error) {
 	for _, name := range names {
 		parentID := ""
 		p := NewPull(name)
+		// 判断是否填充秘钥
+		if harborToken != "" {
+			// 获取token
+			tokenString, _ := p.GetToken(harborToken)
+			p.DockerToken = "Bearer " + tokenString
+		}
 		data, err := p.Manifests()
 		if err != nil {
 			return err
 		}
-
 		fSize, confRespsBody, err := p.Blobs(data.Config.Digest, 0)
 		if err != nil {
 			return fmt.Errorf("while the config digest to get conf %s", err)
@@ -308,7 +355,7 @@ func Save(names []string, fileName string) (error) {
 }
 
 func WriteBar(downloadName string, length, downLen int64) {
-	fmt.Printf("\r%-76s CurrentTotalBytes %15d, ConsumedTotalBytes: %15d, %d%%",
+	fmt.Printf("\rpulling  %-76s CurrentTotalBytes %15d, ConsumedTotalBytes: %15d, %d%%",
 		downloadName, length, downLen, downLen*100/length)
 }
 
@@ -367,8 +414,9 @@ func TarAddfileWithDownBar(tw *tar.Writer, wb WriteBarFunc) TarAddfileFunc {
 					}
 					break
 				}
-				wb(name, size, written)
+
 			}
+			wb(name, size, written)
 			if written >= size {
 				fmt.Println()
 			}

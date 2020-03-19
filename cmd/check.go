@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"dp/registry"
+	"codes.test/dp/registry"
 	"fmt"
 	"github.com/spf13/cobra"
 )

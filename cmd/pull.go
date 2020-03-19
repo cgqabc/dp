@@ -1,7 +1,8 @@
 package cmd
 
 import (
-	"dp/registry"
+	"codes.test/dp/registry"
+	"encoding/base64"
 	"fmt"
 	"github.com/spf13/cobra"
 	"log"
@@ -13,6 +14,9 @@ import (
 var (
 	//strict bool
 	saveName string
+	username string
+	password string
+	harborToken string
 )
 var pullCmd = &cobra.Command{
 	Use:     "pull",
@@ -33,6 +37,9 @@ dp pull -o project.tar.gz nginx:alpine nginx:1.17.5-alpine-perl
 
 # pull from different registry 
 dp pull -o project.tar.gz nginx:alpine gcr.io/google_containers/pause-amd64:3.1
+
+# pull from private registry 
+dp pull -o project.tar.gz private.registry.com/pause-amd64:3.1 -u username -p password
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
@@ -50,7 +57,10 @@ dp pull -o project.tar.gz nginx:alpine gcr.io/google_containers/pause-amd64:3.1
 		if saveName == "" {
 			saveName = fmt.Sprintf("%s.tar.gz", time.Now().Format("2006-1-2-15:04:05"))
 		}
-		if err := registry.Save(args, saveName);err != nil {
+		if username != "" && password != "" {
+			harborToken = encode(username, password)
+		}
+		if err := registry.Save(args, saveName, harborToken);err != nil {
 			_ = os.Remove(saveName)
 			log.Fatal("Save failed: ", err)
 		}
@@ -64,4 +74,14 @@ func init() {
 	//cpCmd.Flags().BoolVarP(&strict, "strict-mode", "s", false,
 	//	"The image name of the pull is strictly checked. If it is wrong, it will not be pulled.")
 	pullCmd.Flags().StringVarP(&saveName, "out-file", "o", "", "the name will write to,default use timeformat")
+	pullCmd.Flags().StringVarP(&username, "username", "u", "admin", "the login name with harbor")
+	pullCmd.Flags().StringVarP(&password, "password", "p", "", "the password with harbor")
+}
+
+// 生成认证秘钥
+func encode(username string, password string) string {
+	input := []byte(username + ":" + password)
+	encodeString := base64.StdEncoding.EncodeToString(input)
+	encodeString = "Basic " + encodeString
+	return encodeString
 }
