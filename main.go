@@ -1,7 +1,7 @@
 package main
 
 import (
-	"codes.test/dp/cmd"
+	"dp/cmd"
 )
 
 

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"codes.test/dp/registry"
+	"dp/registry"
 	"github.com/spf13/cobra"
 	"log"
 	"os"

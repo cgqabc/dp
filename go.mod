@@ -1,4 +1,4 @@
-module codes.test/dp
+module dp
 
 go 1.13
 

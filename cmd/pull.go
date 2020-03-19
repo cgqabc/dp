@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"codes.test/dp/registry"
+	"dp/registry"
 	"encoding/base64"
 	"fmt"
 	"github.com/spf13/cobra"
